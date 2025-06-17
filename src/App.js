@@ -118,6 +118,7 @@ export default function App() {
     if (!socket.connected) socket.connect();
 
     socket.emit("join", { username });
+    socket.emit("play-again");
 
     socket.on("round-start", (data) => {
       setPrompt(data.prompt);
