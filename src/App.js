@@ -106,19 +106,24 @@ export default function App() {
   const [timer, setTimer] = useState(DRAW_TIME);
   const [myStrokes, setMyStrokes] = useState([]);
   const [opponentStrokes, setOpponentStrokes] = useState([]);
-  const [phase, setPhase] = useState("queue"); // "queue", "draw", "result", "waiting"
+  const [phase, setPhase] = useState("queue"); // "queue", "draw", "result"
   const [winner, setWinner] = useState(null);
   const [players, setPlayers] = useState(["You", "Opponent"]);
   const [youAre, setYouAre] = useState(0);
 
-  // Synchronize game state from server
+  // Join and queue after login
   useEffect(() => {
     if (!username) return;
 
     if (!socket.connected) socket.connect();
 
     socket.emit("join", { username });
-    socket.emit("play-again");
+    socket.emit("play-again"); // Immediately enter matchmaking queue
+  }, [username]);
+
+  // Synchronize game state from server
+  useEffect(() => {
+    if (!username) return;
 
     socket.on("round-start", (data) => {
       setPrompt(data.prompt);
@@ -129,7 +134,6 @@ export default function App() {
       setPlayers(data.players);
       setYouAre(data.youAre);
 
-      // Synchronized timer based on server time
       function tick() {
         const elapsed = Math.floor((Date.now() - data.roundStartTime) / 1000);
         const timeLeft = Math.max(data.timer - elapsed, 0);
