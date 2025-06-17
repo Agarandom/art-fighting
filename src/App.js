@@ -13,7 +13,7 @@ function getSvgPath(stroke) {
     : "";
 }
 
-function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke }) {
+function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke, onUndo }) {
   const [currStroke, setCurrStroke] = useState([]);
   const svgRef = useRef();
 
@@ -45,8 +45,7 @@ function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke }) {
   }
   function handleUndo() {
     if (!enabled) return;
-    setStrokes((old) => old.slice(0, -1));
-    // Optionally emit undo event
+    if (typeof onUndo === "function") onUndo();
   }
 
   return (
@@ -103,14 +102,14 @@ export default function App() {
   const [inputName, setInputName] = useState("");
   const [mmr, setMMR] = useState(Number(localStorage.getItem("mmr")) || 1000);
 
-  // Shared game state
   const [prompt, setPrompt] = useState("");
   const [timer, setTimer] = useState(DRAW_TIME);
   const [myStrokes, setMyStrokes] = useState([]);
   const [opponentStrokes, setOpponentStrokes] = useState([]);
-  const [phase, setPhase] = useState("waiting"); // "waiting", "draw", "result"
+  const [phase, setPhase] = useState("queue"); // "queue", "draw", "result", "waiting"
   const [winner, setWinner] = useState(null);
   const [players, setPlayers] = useState(["You", "Opponent"]);
+  const [youAre, setYouAre] = useState(0);
 
   // Synchronize game state from server
   useEffect(() => {
@@ -127,6 +126,7 @@ export default function App() {
       setMyStrokes([]);
       setOpponentStrokes([]);
       setPlayers(data.players);
+      setYouAre(data.youAre);
 
       // Synchronized timer based on server time
       function tick() {
@@ -159,25 +159,28 @@ export default function App() {
       setOpponentStrokes((old) => [...old, stroke]);
     });
 
+    socket.on("undo-confirm", () => {
+      setMyStrokes((old) => old.slice(0, -1));
+    });
+    socket.on("opponent-undo", () => {
+      setOpponentStrokes((old) => old.slice(0, -1));
+    });
+
     socket.on("opponent-clear", () => setOpponentStrokes([]));
     socket.on("opponent-leave", () => {
       setPlayers(["You", "Opponent"]);
       setOpponentStrokes([]);
-      setPhase("waiting");
+      setPhase("queue");
     });
 
-    socket.on("game-state", (data) => {
-      setPlayers(data.players);
-    });
-
-    // Clean up
     return () => {
       socket.off("round-start");
       socket.off("round-ended");
       socket.off("receive-stroke");
+      socket.off("undo-confirm");
+      socket.off("opponent-undo");
       socket.off("opponent-clear");
       socket.off("opponent-leave");
-      socket.off("game-state");
     };
   }, [username, phase]);
 
@@ -185,11 +188,15 @@ export default function App() {
     socket.emit("send-stroke", stroke);
   }
 
+  function handleUndo() {
+    socket.emit("undo");
+  }
+
   function resetRound() {
     setMyStrokes([]);
     setOpponentStrokes([]);
     setWinner(null);
-    setPhase("waiting");
+    setPhase("queue");
     socket.emit("play-again");
   }
 
@@ -218,8 +225,8 @@ export default function App() {
     );
   }
 
-  // Waiting for another player
-  if (phase === "waiting") {
+  // Waiting/queue state
+  if (phase === "queue") {
     return (
       <div style={{ padding: 40, textAlign: "center", fontFamily: "sans-serif" }}>
         <h1>Waiting for opponent...</h1>
@@ -260,6 +267,7 @@ export default function App() {
             strokes={myStrokes}
             setStrokes={setMyStrokes}
             onSendStroke={sendStroke}
+            onUndo={handleUndo}
           />
         </div>
         <div style={{ width: 2, background: "#bbb", height: CANVAS_H, alignSelf: "center" }} />
@@ -307,7 +315,9 @@ export default function App() {
               <DrawingCanvas enabled={false} strokes={opponentStrokes} setStrokes={() => { }} onSendStroke={() => { }} />
             </div>
           </div>
-          <button style={{ marginTop: 22, fontSize: 18, padding: "10px 36px" }} onClick={resetRound}>Play Again</button>
+          <button style={{ marginTop: 22, fontSize: 18, padding: "10px 36px" }} onClick={resetRound}>
+            Queue for Next Match
+          </button>
         </div>
       )}
     </div>
