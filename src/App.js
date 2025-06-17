@@ -106,10 +106,11 @@ export default function App() {
   const [timer, setTimer] = useState(DRAW_TIME);
   const [myStrokes, setMyStrokes] = useState([]);
   const [opponentStrokes, setOpponentStrokes] = useState([]);
-  const [phase, setPhase] = useState("queue"); // "queue", "draw", "result"
+  const [phase, setPhase] = useState("queue");
   const [winner, setWinner] = useState(null);
   const [players, setPlayers] = useState(["You", "Opponent"]);
   const [youAre, setYouAre] = useState(0);
+  const [roundActive, setRoundActive] = useState(false);
 
   // Join and queue after login
   useEffect(() => {
@@ -118,41 +119,29 @@ export default function App() {
     if (!socket.connected) socket.connect();
 
     socket.emit("join", { username });
-    socket.emit("play-again"); // Immediately enter matchmaking queue
+    socket.emit("play-again");
   }, [username]);
 
-  // Synchronize game state from server
+  // Socket events
   useEffect(() => {
     if (!username) return;
 
     socket.on("round-start", (data) => {
       setPrompt(data.prompt);
-      setPhase("draw");
+      setPlayers(data.players);
+      setYouAre(data.youAre);
       setWinner(null);
       setMyStrokes([]);
       setOpponentStrokes([]);
-      setPlayers(data.players);
-      setYouAre(data.youAre);
-
-      function tick() {
-        const elapsed = Math.floor((Date.now() - data.roundStartTime) / 1000);
-        const timeLeft = Math.max(data.timer - elapsed, 0);
-        setTimer(timeLeft);
-
-        if (timeLeft > 0 && phase === "draw") {
-          setTimeout(tick, 500);
-        }
-        if (timeLeft === 0 && phase === "draw") {
-          setPhase("result");
-          socket.emit("end-round");
-        }
-      }
-      tick();
+      setTimer(data.timer);
+      setPhase("draw");
+      setRoundActive(true);
     });
 
     socket.on("round-ended", ({ winner }) => {
       setWinner(winner);
       setPhase("result");
+      setRoundActive(false);
       setMMR((mmr) => {
         const newMMR = winner === username ? mmr + MMR_DELTA : mmr - MMR_DELTA;
         localStorage.setItem("mmr", newMMR);
@@ -176,6 +165,7 @@ export default function App() {
       setPlayers(["You", "Opponent"]);
       setOpponentStrokes([]);
       setPhase("queue");
+      setRoundActive(false);
     });
 
     return () => {
@@ -187,21 +177,34 @@ export default function App() {
       socket.off("opponent-clear");
       socket.off("opponent-leave");
     };
-  }, [username, phase]);
+  }, [username]);
+
+  // Bulletproof timer
+  useEffect(() => {
+    if (!roundActive || phase !== "draw") return;
+
+    if (timer <= 0) {
+      setRoundActive(false);
+      setPhase("result");
+      socket.emit("end-round");
+      return;
+    }
+    const t = setTimeout(() => setTimer((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [roundActive, timer, phase]);
 
   function sendStroke(stroke) {
     socket.emit("send-stroke", stroke);
   }
-
   function handleUndo() {
     socket.emit("undo");
   }
-
   function resetRound() {
     setMyStrokes([]);
     setOpponentStrokes([]);
     setWinner(null);
     setPhase("queue");
+    setRoundActive(false);
     socket.emit("play-again");
   }
 
