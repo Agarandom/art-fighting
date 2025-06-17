@@ -1,19 +1,10 @@
 import React, { useRef, useState, useEffect } from "react";
 import getStroke from "perfect-freehand";
-import { io } from "socket.io-client"; // fixed import
+import { io } from "socket.io-client";
 
-// --- Constants ---
 const CANVAS_W = 540, CANVAS_H = 680, DRAW_TIME = 60, MMR_DELTA = 25;
-const PROMPTS = [
-  "Draw a mountain", "Draw a cat", "Draw a castle", "Draw a robot", "Draw a fish"
-];
-
-// --- Single global socket ---
 const socket = io("https://arts-fighting-server.onrender.com");
 
-
-
-// --- Helper: SVG path from points ---
 function getSvgPath(stroke) {
   if (!stroke.length) return "";
   const pts = getStroke(stroke, { size: 5, thinning: 0.7, smoothing: 0.75 });
@@ -22,7 +13,6 @@ function getSvgPath(stroke) {
     : "";
 }
 
-// --- Drawing Canvas ---
 function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke }) {
   const [currStroke, setCurrStroke] = useState([]);
   const svgRef = useRef();
@@ -59,7 +49,6 @@ function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke }) {
     // Optionally emit undo event
   }
 
-  // Mouse & touch handlers
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
       <svg
@@ -109,99 +98,102 @@ function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke }) {
   );
 }
 
-// --- Random Prompt ---
-function getRandomPrompt() {
-  return PROMPTS[Math.floor(Math.random() * PROMPTS.length)];
-}
-
 export default function App() {
-  // --- Auth ---
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
   const [inputName, setInputName] = useState("");
   const [mmr, setMMR] = useState(Number(localStorage.getItem("mmr")) || 1000);
 
-  // --- Game State ---
-  const [prompt, setPrompt] = useState(getRandomPrompt());
+  // Shared game state
+  const [prompt, setPrompt] = useState("");
   const [timer, setTimer] = useState(DRAW_TIME);
   const [myStrokes, setMyStrokes] = useState([]);
   const [opponentStrokes, setOpponentStrokes] = useState([]);
-  const [phase, setPhase] = useState("draw"); // "draw" | "result"
+  const [phase, setPhase] = useState("waiting"); // "waiting", "draw", "result"
   const [winner, setWinner] = useState(null);
-  const [opponentName, setOpponentName] = useState("Opponent");
+  const [players, setPlayers] = useState(["You", "Opponent"]);
 
-  // --- Socket events (Connect only after login) ---
+  // Synchronize game state from server
   useEffect(() => {
     if (!username) return;
 
-    // Connect the socket if not already
     if (!socket.connected) socket.connect();
 
     socket.emit("join", { username });
 
-    // Listen for opponent strokes
+    socket.on("round-start", (data) => {
+      setPrompt(data.prompt);
+      setPhase("draw");
+      setWinner(null);
+      setMyStrokes([]);
+      setOpponentStrokes([]);
+      setPlayers(data.players);
+
+      // Synchronized timer based on server time
+      function tick() {
+        const elapsed = Math.floor((Date.now() - data.roundStartTime) / 1000);
+        const timeLeft = Math.max(data.timer - elapsed, 0);
+        setTimer(timeLeft);
+
+        if (timeLeft > 0 && phase === "draw") {
+          setTimeout(tick, 500);
+        }
+        if (timeLeft === 0 && phase === "draw") {
+          setPhase("result");
+          socket.emit("end-round");
+        }
+      }
+      tick();
+    });
+
+    socket.on("round-ended", ({ winner }) => {
+      setWinner(winner);
+      setPhase("result");
+      setMMR((mmr) => {
+        const newMMR = winner === username ? mmr + MMR_DELTA : mmr - MMR_DELTA;
+        localStorage.setItem("mmr", newMMR);
+        return newMMR;
+      });
+    });
+
     socket.on("receive-stroke", (stroke) => {
       setOpponentStrokes((old) => [...old, stroke]);
     });
-    socket.on("opponent-join", (data) => {
-      setOpponentName(data.username || "Opponent");
-    });
+
     socket.on("opponent-clear", () => setOpponentStrokes([]));
     socket.on("opponent-leave", () => {
-      setOpponentName("Opponent");
+      setPlayers(["You", "Opponent"]);
       setOpponentStrokes([]);
+      setPhase("waiting");
     });
 
-    // Clean up listeners on unmount
+    socket.on("game-state", (data) => {
+      setPlayers(data.players);
+    });
+
+    // Clean up
     return () => {
+      socket.off("round-start");
+      socket.off("round-ended");
       socket.off("receive-stroke");
-      socket.off("opponent-join");
       socket.off("opponent-clear");
       socket.off("opponent-leave");
+      socket.off("game-state");
     };
-  }, [username]);
+  }, [username, phase]);
 
-  // --- Send stroke to opponent ---
   function sendStroke(stroke) {
     socket.emit("send-stroke", stroke);
   }
 
-  // --- Timer logic ---
-  useEffect(() => {
-    if (phase !== "draw") return;
-    if (timer <= 0) {
-      setPhase("result");
-      handleRoundEnd();
-      return;
-    }
-    const t = setTimeout(() => setTimer((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line
-  }, [timer, phase]);
-
-  // --- Determine winner (random for MVP) ---
-  function handleRoundEnd() {
-    // MVP: Random winner (replace with AI judge in future)
-    const winnerIsMe = Math.random() > 0.5;
-    setWinner(winnerIsMe ? username : opponentName);
-    setMMR((mmr) => {
-      const newMMR = winnerIsMe ? mmr + MMR_DELTA : mmr - MMR_DELTA;
-      localStorage.setItem("mmr", newMMR);
-      return newMMR;
-    });
-  }
-
-  // --- Play again ---
   function resetRound() {
-    setPrompt(getRandomPrompt());
-    setTimer(DRAW_TIME);
     setMyStrokes([]);
     setOpponentStrokes([]);
     setWinner(null);
-    setPhase("draw");
-    socket.emit("clear");
+    setPhase("waiting");
+    socket.emit("play-again");
   }
 
-  // --- Auth flow ---
+  // Auth flow
   if (!username) {
     return (
       <div style={{ padding: 40, maxWidth: 400, margin: "80px auto", fontFamily: "sans-serif", textAlign: "center" }}>
@@ -226,7 +218,23 @@ export default function App() {
     );
   }
 
-  // --- Main Game UI ---
+  // Waiting for another player
+  if (phase === "waiting") {
+    return (
+      <div style={{ padding: 40, textAlign: "center", fontFamily: "sans-serif" }}>
+        <h1>Waiting for opponent...</h1>
+        <div>Share this link with a friend to play together!</div>
+        <div style={{ marginTop: 24, fontSize: 18 }}>
+          <b>You:</b> {username}
+        </div>
+        <div style={{ marginTop: 6, color: "#999" }}>
+          Opponent: {players[1] || "Opponent"}
+        </div>
+      </div>
+    );
+  }
+
+  // Main Game UI
   return (
     <div style={{ fontFamily: "sans-serif", padding: 32 }}>
       <h1 style={{ textAlign: "center" }}>Art Fighting (MVP)</h1>
@@ -258,7 +266,7 @@ export default function App() {
         {/* Player 2 */}
         <div style={{ flex: 1, minWidth: CANVAS_W }}>
           <div style={{ textAlign: "center", marginBottom: 8 }}>
-            <b>{opponentName}</b> (<span style={{ color: "#555" }}>??? MMR</span>)
+            <b>{players[1] || "Opponent"}</b> (<span style={{ color: "#555" }}>??? MMR</span>)
           </div>
           <DrawingCanvas
             enabled={false}
@@ -295,7 +303,7 @@ export default function App() {
               <DrawingCanvas enabled={false} strokes={myStrokes} setStrokes={() => { }} onSendStroke={() => { }} />
             </div>
             <div>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>{opponentName}</div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>{players[1] || "Opponent"}</div>
               <DrawingCanvas enabled={false} strokes={opponentStrokes} setStrokes={() => { }} onSendStroke={() => { }} />
             </div>
           </div>
