@@ -102,6 +102,16 @@ export default function App() {
   const [inputName, setInputName] = useState("");
   const [mmr, setMMR] = useState(Number(localStorage.getItem("mmr")) || 1000);
 
+  // --- NEW: UserId persistent across sessions ---
+  const [userId] = useState(() => {
+    let id = localStorage.getItem("userId");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("userId", id);
+    }
+    return id;
+  });
+
   const [prompt, setPrompt] = useState("");
   const [timer, setTimer] = useState(DRAW_TIME);
   const [myStrokes, setMyStrokes] = useState([]);
@@ -118,9 +128,10 @@ export default function App() {
 
     if (!socket.connected) socket.connect();
 
-    socket.emit("join", { username });
+    // --- Send userId with join! ---
+    socket.emit("join", { username, userId });
     socket.emit("play-again");
-  }, [username]);
+  }, [username, userId]);
 
   // Socket events
   useEffect(() => {
