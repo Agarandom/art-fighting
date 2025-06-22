@@ -2,34 +2,31 @@ import React, { useRef, useState, useEffect } from "react";
 import getStroke from "perfect-freehand";
 import { io } from "socket.io-client";
 
-// Bigger canvas size
-const CANVAS_W = 800, CANVAS_H = 1000, DRAW_TIME = 60, MMR_DELTA = 25;
+// Responsive canvas (fills half screen, no scroll)
+const CANVAS_RATIO = 0.88; // 88% of half the screen width
+const MMR_DELTA = 25, DRAW_TIME = 60;
 const socket = io("https://arts-fighting-server.onrender.com");
 
-// For MMR delta pop
-function MMRDelta({ delta }) {
-  if (!delta) return null;
-  return (
-    <div style={{
-      fontSize: 36,
-      fontWeight: 900,
-      color: delta > 0 ? "#39d353" : "#f23d3d",
-      margin: "16px 0",
-      transition: "opacity 0.5s",
-      textShadow: "0 2px 12px rgba(0,0,0,0.1)",
-      letterSpacing: 2,
-      animation: "mmrPop 1s"
-    }}>
-      {delta > 0 ? `+${delta}` : `${delta}`}
-      <style>{`
-        @keyframes mmrPop {
-          0% { transform: scale(0.6); opacity: 0; }
-          50% { transform: scale(1.25); opacity: 1; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-      `}</style>
-    </div>
-  );
+// Font
+const FONT_URL = "https://fonts.googleapis.com/css2?family=Poppins:wght@700;600;400&display=swap";
+const injectFont = () => {
+  if (!document.getElementById("gameFont")) {
+    const link = document.createElement("link");
+    link.id = "gameFont";
+    link.rel = "stylesheet";
+    link.href = FONT_URL;
+    document.head.appendChild(link);
+  }
+};
+
+function useWindowSize() {
+  const [size, setSize] = useState([window.innerWidth, window.innerHeight]);
+  useEffect(() => {
+    const handler = () => setSize([window.innerWidth, window.innerHeight]);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return size;
 }
 
 function getSvgPath(stroke) {
@@ -40,7 +37,31 @@ function getSvgPath(stroke) {
     : "";
 }
 
-function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke, onUndo }) {
+function MMRDelta({ delta }) {
+  if (!delta) return null;
+  return (
+    <div style={{
+      fontSize: 38,
+      fontWeight: 900,
+      color: delta > 0 ? "#24e88b" : "#f23d3d",
+      margin: "16px 0",
+      transition: "opacity 0.5s",
+      letterSpacing: 2,
+      animation: "mmrPop 1s"
+    }}>
+      {delta > 0 ? `+${delta}` : `${delta}`}
+      <style>{`
+        @keyframes mmrPop {
+          0% { transform: scale(0.7); opacity: 0; }
+          60% { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke, onUndo, width, height }) {
   const [currStroke, setCurrStroke] = useState([]);
   const svgRef = useRef();
 
@@ -51,8 +72,8 @@ function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke, onUndo }) {
     const clientX = touch ? touch.clientX : e.clientX;
     const clientY = touch ? touch.clientY : e.clientY;
     return [
-      ((clientX - rect.left) / rect.width) * CANVAS_W,
-      ((clientY - rect.top) / rect.height) * CANVAS_H,
+      ((clientX - rect.left) / rect.width) * width,
+      ((clientY - rect.top) / rect.height) * height,
     ];
   }
 
@@ -77,29 +98,28 @@ function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke, onUndo }) {
 
   return (
     <div style={{
-      flex: 1,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      background: enabled ? "linear-gradient(120deg,#ffeaa7 0,#a0c4ff 100%)" : "#fafbfc",
-      borderRadius: 24,
-      boxShadow: "0 4px 20px 0 rgba(130,140,200,0.09)",
-      padding: 16,
-      minWidth: CANVAS_W + 32,
-      transition: "background 0.3s"
+      width: width + 8, height: height + 64,
+      background: enabled ? "#171c27" : "#222635",
+      borderRadius: 22,
+      boxShadow: enabled ? "0 4px 32px #00ffb988, 0 2px 10px #002b5055" : "0 2px 10px #101e3388",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+      padding: 12, position: "relative",
+      border: enabled ? "4px solid #24e88b" : "2.5px solid #373b52",
+      margin: "0 auto",
+      transition: "border 0.2s"
     }}>
       <svg
         ref={svgRef}
-        width={CANVAS_W}
-        height={CANVAS_H}
+        width={width}
+        height={height}
         style={{
-          border: enabled ? "3px solid #00b894" : "2px solid #bbb",
-          borderRadius: 18,
+          border: "none",
+          borderRadius: 14,
           background: "#fff",
           touchAction: "none",
-          marginBottom: 8,
+          marginBottom: 10,
           cursor: enabled ? "crosshair" : "not-allowed",
-          boxShadow: "0 1px 8px rgba(0,0,0,0.06)"
+          boxShadow: "0 1px 8px #191e2a55"
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -134,17 +154,17 @@ function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke, onUndo }) {
       <button
         onClick={handleUndo}
         style={{
-          marginTop: 4,
-          background: "#fff",
-          color: "#555",
-          border: "2px solid #00b894",
-          borderRadius: 12,
-          fontWeight: 600,
+          background: enabled ? "linear-gradient(90deg,#43e8d8,#24e88b)" : "#aaa",
+          color: "#0d232e",
+          border: "none",
+          borderRadius: 10,
+          fontWeight: 800,
           fontSize: 18,
-          padding: "6px 22px",
+          padding: "8px 34px",
+          marginTop: 4,
           cursor: enabled ? "pointer" : "not-allowed",
-          boxShadow: enabled ? "0 2px 8px #a0c4ff55" : undefined,
-          transition: "background 0.2s, color 0.2s"
+          boxShadow: enabled ? "0 2px 8px #24e88b44" : "none",
+          letterSpacing: 1.2
         }}>
         Undo
       </button>
@@ -153,11 +173,15 @@ function DrawingCanvas({ enabled, strokes, setStrokes, onSendStroke, onUndo }) {
 }
 
 export default function App() {
+  injectFont();
+  const [w, h] = useWindowSize();
+  // Calculate canvas size dynamically
+  const SIDE_W = Math.floor((w * 0.5) * CANVAS_RATIO);
+  const SIDE_H = Math.min(h * 0.84, SIDE_W * 1.15); // Not too tall
+
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
   const [inputName, setInputName] = useState("");
   const [mmr, setMMR] = useState(Number(localStorage.getItem("mmr")) || 1000);
-
-  // --- NEW: UserId persistent across sessions ---
   const [userId] = useState(() => {
     let id = localStorage.getItem("userId");
     if (!id) {
@@ -181,9 +205,7 @@ export default function App() {
   // Join and queue after login
   useEffect(() => {
     if (!username) return;
-
     if (!socket.connected) socket.connect();
-
     socket.emit("join", { username, userId });
     socket.emit("play-again");
   }, [username, userId]);
@@ -283,33 +305,45 @@ export default function App() {
   if (!username) {
     return (
       <div style={{
-        padding: 40, maxWidth: 400, margin: "80px auto", fontFamily: "Montserrat,sans-serif",
-        textAlign: "center", borderRadius: 24, background: "linear-gradient(110deg,#f1f0ff 0,#c5dafe 100%)"
+        minHeight: "100vh",
+        background: "#171c27",
+        display: "flex",
+        alignItems: "center", justifyContent: "center"
       }}>
-        <h1 style={{ fontWeight: 900, fontSize: 40, color: "#4939c3" }}>Art Fighting</h1>
-        <input
-          placeholder="Enter your username..."
-          value={inputName}
-          onChange={e => setInputName(e.target.value)}
-          style={{
-            fontSize: 20, padding: 12, marginBottom: 18, width: "80%", borderRadius: 10,
-            border: "2px solid #3a82ee", outline: "none"
-          }}
-        /><br />
-        <button
-          style={{
-            fontSize: 20, padding: "10px 38px", borderRadius: 12,
-            background: "linear-gradient(90deg,#4fd1c5 0,#7f78d2 100%)",
-            color: "#fff", fontWeight: 700, border: "none", boxShadow: "0 2px 8px #a0c4ff55", cursor: "pointer"
-          }}
-          onClick={() => {
-            if (inputName.trim().length < 2) return;
-            setUsername(inputName);
-            localStorage.setItem("username", inputName);
-            localStorage.setItem("mmr", mmr);
-          }}>
-          Login
-        </button>
+        <div style={{
+          padding: 40, maxWidth: 430, minWidth: 340,
+          borderRadius: 24, background: "#232848",
+          boxShadow: "0 2px 22px #23e89b22, 0 1px 8px #171c2755"
+        }}>
+          <h1 style={{
+            fontWeight: 900, fontSize: 42, color: "#24e88b",
+            letterSpacing: 1, marginBottom: 18, fontFamily: "Poppins,sans-serif"
+          }}>Art Fighting</h1>
+          <input
+            placeholder="Enter your username..."
+            value={inputName}
+            onChange={e => setInputName(e.target.value)}
+            style={{
+              fontSize: 22, padding: 14, marginBottom: 22, width: "100%", borderRadius: 10,
+              border: "2px solid #24e88b", outline: "none", fontFamily: "Poppins,sans-serif"
+            }}
+          /><br />
+          <button
+            style={{
+              fontSize: 22, padding: "12px 38px", borderRadius: 12,
+              background: "linear-gradient(90deg,#43e8d8,#24e88b 100%)",
+              color: "#171c27", fontWeight: 800, border: "none", boxShadow: "0 2px 8px #24e88b55", cursor: "pointer",
+              letterSpacing: 1.2
+            }}
+            onClick={() => {
+              if (inputName.trim().length < 2) return;
+              setUsername(inputName);
+              localStorage.setItem("username", inputName);
+              localStorage.setItem("mmr", mmr);
+            }}>
+            Login
+          </button>
+        </div>
       </div>
     );
   }
@@ -318,24 +352,41 @@ export default function App() {
   if (phase === "queue") {
     return (
       <div style={{
-        padding: 40, textAlign: "center", fontFamily: "Montserrat,sans-serif",
-        minHeight: "100vh", background: "linear-gradient(120deg,#f7fdff 0,#a0c4ff 100%)"
+        minHeight: "100vh", background: "#171c27",
+        display: "flex", alignItems: "center", justifyContent: "center"
       }}>
-        <h1 style={{ fontWeight: 800, fontSize: 34, color: "#2666cf" }}>Waiting for opponent...</h1>
-        <div style={{ fontSize: 18, color: "#555", marginBottom: 12 }}>
-          Share this link with a friend to play together!
-        </div>
         <div style={{
-          marginTop: 24, fontSize: 21, fontWeight: 700, color: "#0c1856",
-          background: "#e3e8ff", padding: "12px 34px", borderRadius: 16, display: "inline-block"
+          borderRadius: 20,
+          background: "#232848",
+          boxShadow: "0 2px 18px #00ffd044, 0 1px 8px #171c2765",
+          padding: "42px 60px", minWidth: 440
         }}>
-          <b>You:</b> {username}
-        </div>
-        <div style={{
-          marginTop: 16, color: "#999", fontSize: 20, background: "#fff6",
-          padding: "8px 18px", borderRadius: 14, display: "inline-block"
-        }}>
-          Opponent: {players[1] || "Opponent"}
+          <h1 style={{
+            fontWeight: 900, fontSize: 36, color: "#24e88b", letterSpacing: 1, marginBottom: 12
+          }}>Waiting for opponent...</h1>
+          <div style={{
+            fontSize: 18, color: "#eee", marginBottom: 20, fontWeight: 400,
+            letterSpacing: 0.3, fontFamily: "Poppins,sans-serif"
+          }}>
+            Share this link with a friend to play together!
+          </div>
+          <div style={{
+            display: "flex", gap: 20, marginTop: 18
+          }}>
+            <div style={{
+              fontSize: 20, fontWeight: 700, color: "#24e88b",
+              background: "#151a33", padding: "11px 36px", borderRadius: 14, fontFamily: "Poppins,sans-serif"
+            }}>
+              <b>You:</b> {username}
+            </div>
+            <div style={{
+              fontSize: 19, color: "#b3b6cd", fontWeight: 500, fontFamily: "Poppins,sans-serif",
+              background: "#232848", padding: "11px 22px", borderRadius: 14,
+              border: "1.8px dashed #24e88b55"
+            }}>
+              Opponent: {players[1] || "Opponent"}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -344,35 +395,37 @@ export default function App() {
   // Main Game UI
   return (
     <div style={{
-      fontFamily: "Montserrat,sans-serif", padding: 32, minHeight: "100vh",
-      background: "linear-gradient(110deg,#f1f0ff 0,#a0c4ff 100%)"
+      minHeight: "100vh", width: "100vw", overflow: "hidden", background: "#171c27",
+      fontFamily: "Poppins,sans-serif", padding: 0, margin: 0, boxSizing: "border-box"
     }}>
-      <h1 style={{
-        textAlign: "center", fontWeight: 900, fontSize: 44, letterSpacing: 1, color: "#4939c3",
-        marginBottom: 20, textShadow: "0 2px 12px #adbbff77"
-      }}>Art Fighting</h1>
       <div style={{
-        textAlign: "center", marginBottom: 28, fontSize: 28, background: "#e5f1ff",
-        borderRadius: 18, padding: "10px 0", fontWeight: 600, boxShadow: "0 1px 10px #a0c4ff55"
+        width: "100%", padding: "18px 0 16px 0", marginBottom: 0, textAlign: "center",
+        fontWeight: 900, fontSize: 40, color: "#24e88b", letterSpacing: 1.5,
+        textShadow: "0 2px 12px #24e88b44, 0 2px 20px #191e2a66"
       }}>
-        <span style={{ color: "#2666cf" }}>
+        Art Fighting
+      </div>
+      <div style={{
+        textAlign: "center", marginBottom: 18, fontSize: 28, color: "#b3b6cd",
+        fontWeight: 600, letterSpacing: 1, padding: "8px 0"
+      }}>
+        <span>
           <b>Prompt:</b> {prompt}
         </span>
-        <span style={{ marginLeft: 38, color: "#ff5252" }}>
+        <span style={{ marginLeft: 38, color: "#24e88b" }}>
           <b>Time left:</b> {phase === "draw" ? timer : 0}s
         </span>
       </div>
       <div style={{
-        display: "flex", flexDirection: "row", gap: 38, justifyContent: "center",
-        alignItems: "flex-start", width: "100%", maxWidth: 1800, margin: "0 auto"
+        display: "flex", flexDirection: "row", justifyContent: "center",
+        alignItems: "flex-start", width: "100vw", gap: 24, margin: 0
       }}>
         {/* Player 1 */}
-        <div>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
           <div style={{
-            textAlign: "center", marginBottom: 12,
-            fontWeight: 800, color: "#24b47e", fontSize: 24
+            textAlign: "center", marginBottom: 12, fontWeight: 800, color: "#24e88b", fontSize: 24, letterSpacing: 1.1
           }}>
-            {username} <span style={{ color: "#222", fontSize: 18 }}>({mmr} MMR)</span>
+            {username} <span style={{ color: "#eee", fontSize: 18 }}>({mmr} MMR)</span>
           </div>
           <DrawingCanvas
             enabled={phase === "draw"}
@@ -380,25 +433,29 @@ export default function App() {
             setStrokes={setMyStrokes}
             onSendStroke={sendStroke}
             onUndo={handleUndo}
+            width={SIDE_W}
+            height={SIDE_H}
           />
         </div>
+        {/* Divider */}
         <div style={{
-          width: 8, background: "linear-gradient(#a0c4ff, #b7f3d4)",
-          height: CANVAS_H + 40, alignSelf: "center", borderRadius: 8, boxShadow: "0 2px 12px #8cbeff55"
+          width: 12, background: "linear-gradient(#24e88b88, #232848 50%, #43e8d844)",
+          height: SIDE_H + 80, alignSelf: "center", borderRadius: 8, margin: "0 12px"
         }} />
         {/* Player 2 */}
-        <div>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
           <div style={{
-            textAlign: "center", marginBottom: 12,
-            fontWeight: 800, color: "#7f7fc6", fontSize: 24
+            textAlign: "center", marginBottom: 12, fontWeight: 800, color: "#9ea9fd", fontSize: 24, letterSpacing: 1.1
           }}>
-            {players[1] || "Opponent"} <span style={{ color: "#555", fontSize: 18 }}>(??? MMR)</span>
+            {players[1] || "Opponent"} <span style={{ color: "#b3b6cd", fontSize: 18 }}>(??? MMR)</span>
           </div>
           <DrawingCanvas
             enabled={false}
             strokes={opponentStrokes}
             setStrokes={() => { }}
             onSendStroke={() => { }}
+            width={SIDE_W}
+            height={SIDE_H}
           />
         </div>
       </div>
@@ -407,45 +464,46 @@ export default function App() {
       {phase === "result" && (
         <div style={{
           textAlign: "center",
-          marginTop: 50,
-          background: "#f6fafd",
-          border: "2.5px solid #a0c4ff",
-          borderRadius: 18,
-          maxWidth: 900,
+          marginTop: 42,
+          background: "#232848",
+          border: "2.5px solid #24e88b",
+          borderRadius: 16,
+          maxWidth: 1000,
           marginLeft: "auto",
           marginRight: "auto",
-          padding: 32,
-          boxShadow: "0 2px 18px #a0c4ff55"
+          padding: 38,
+          boxShadow: "0 2px 18px #24e88b33"
         }}>
-          <h2 style={{ fontWeight: 800, fontSize: 30, color: "#4939c3" }}>Results</h2>
-          <div style={{ fontSize: 22, margin: 12 }}>
+          <h2 style={{ fontWeight: 900, fontSize: 30, color: "#24e88b" }}>Results</h2>
+          <div style={{ fontSize: 22, margin: 12, color: "#b3b6cd" }}>
             <b>Prompt:</b> {prompt}
           </div>
           <div style={{ fontSize: 26, margin: 14 }}>
             <b>Winner:</b>{" "}
             <span style={{
-              color: winner === username ? "#24b47e" : "#f23d3d",
+              color: winner === username ? "#24e88b" : "#f23d3d",
               fontWeight: 900
             }}>{winner}</span>
           </div>
           <MMRDelta delta={mmrDelta} />
           <div style={{
             display: "flex", flexDirection: "row", justifyContent: "center",
-            gap: 32, marginTop: 18
+            gap: 36, marginTop: 18
           }}>
             <div>
-              <div style={{ fontWeight: 700, marginBottom: 8, color: "#24b47e", fontSize: 20 }}>{username}</div>
-              <DrawingCanvas enabled={false} strokes={myStrokes} setStrokes={() => { }} onSendStroke={() => { }} />
+              <div style={{ fontWeight: 700, marginBottom: 8, color: "#24e88b", fontSize: 20 }}>{username}</div>
+              <DrawingCanvas enabled={false} strokes={myStrokes} setStrokes={() => { }} onSendStroke={() => { }} width={SIDE_W / 1.4} height={SIDE_H / 1.4} />
             </div>
             <div>
-              <div style={{ fontWeight: 700, marginBottom: 8, color: "#7f7fc6", fontSize: 20 }}>{players[1] || "Opponent"}</div>
-              <DrawingCanvas enabled={false} strokes={opponentStrokes} setStrokes={() => { }} onSendStroke={() => { }} />
+              <div style={{ fontWeight: 700, marginBottom: 8, color: "#9ea9fd", fontSize: 20 }}>{players[1] || "Opponent"}</div>
+              <DrawingCanvas enabled={false} strokes={opponentStrokes} setStrokes={() => { }} onSendStroke={() => { }} width={SIDE_W / 1.4} height={SIDE_H / 1.4} />
             </div>
           </div>
           <button style={{
-            marginTop: 32, fontSize: 20, padding: "14px 44px", borderRadius: 13,
-            background: "linear-gradient(90deg,#7f78d2 0,#43e8d8 100%)",
-            color: "#fff", fontWeight: 900, border: "none", boxShadow: "0 2px 8px #a0c4ff55", cursor: "pointer"
+            marginTop: 32, fontSize: 21, padding: "15px 46px", borderRadius: 12,
+            background: "linear-gradient(90deg,#43e8d8,#24e88b 100%)",
+            color: "#171c27", fontWeight: 900, border: "none", boxShadow: "0 2px 8px #24e88b55", cursor: "pointer",
+            letterSpacing: 1.2
           }} onClick={resetRound}>
             Queue for Next Match
           </button>
